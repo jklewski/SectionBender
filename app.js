@@ -22,6 +22,31 @@ function linspace(min, max, nel) {
     return x
 }
 
+function sectionClass(data) {
+    let {h,b_f1,b_f2,t_f1,t_f2,f_yd,t_w} = data
+    let SC_w = 0
+    let SC_f1 = 0
+    let SC_f2 = 0
+    const slenderness_w = (h-b_f1-b_f2) / t_w
+    const slenderness_f1 = ((b_f1/2)-(t_w/2)) / t_f1
+    const slenderness_f2 = ((b_f2/2)-(t_w/2)) / t_f2  
+    const eps = Math.sqrt(235*1e6/f_yd)  
+    if (slenderness_w<(72*eps)) {SC_w = 1} 
+    else if (slenderness_w<(83*eps)) {SC_w=2}
+    else if (slenderness_w<(124*eps)) {SC_w=3}
+    else {SC_w=4}
+    if (slenderness_f1<(9*eps)) {SC_f1 = 1} 
+    else if (slenderness_f1<(10*eps)) {SC_f1=2}
+    else if (slenderness_f1<(14*eps)) {SC_f1=3}
+    else {SC_f1=4}
+    if (slenderness_f2<(9*eps)) {SC_f2 = 1} 
+    else if (slenderness_f2<(10*eps)) {SC_f2=2}
+    else if (slenderness_f2<(14*eps)) {SC_f2=3}
+    else {SC_f2=4}
+    SC = {SC_w:SC_w,SC_f1:SC_f1,SC_f2:SC_f2}
+    return SC
+}
+
 function getWidth(data) {
     const { h, x_p, y_p } = data;
     y_c = linspace(0, h, h + 1)
@@ -52,9 +77,51 @@ function getWidth(data) {
         }
         width[j] = w.reduce((a, b) => a + b, 0);
     }
-    //ax = document.getElementById('myAx3')
-    //Plotly.newPlot(ax, [{ x: x_p, y: y_p }, { x: width, y: y_c }])
     return [y_c, width]
+}
+
+function reducedSection(data) {
+    let {b,t_f1,t_f2,t_w,h,f_yd,b_f1,b_f2,E_s} = data
+    //calculate gross CoG
+    let A = ((b_f2-t_w)*t_f2 + (b_f1-t_w)*t_f1 + h*t_w)
+    let y_tp = ((b_f1-t_w)*t_f1*t_f1/2 + 
+                (b_f2-t_w)*t_f2*(h-t_f1/2) +
+                (h*t_w)*h/2) / A;
+    const eps = Math.sqrt(235*1e6/f_yd)    
+;
+    if (data.SC.SC_f2 > 3) {
+    //reduce compressed flange
+    let sigmaRatioF = 1;
+    let k_sigmaF = (x) => (8.2/(1.05+x))*(x>=0) +
+        (7.81-6.29*x+9.78*(x**2))*(x<0 && x>-1) + 
+        (5.98*(1-x)**2)*(x<=-1)
+    let k_sigma_in_F = k_sigmaF(sigmaRatioF)
+
+    let lambda_p_F = ((b_f1/2-t_w/2)/t_f1) / (28.4*eps*k_sigma_in_F**0.5)
+    let rhoF = 1 * (lambda_p_F<0.748) + 
+        Math.min((lambda_p_F-0.188)/(lambda_p_F**2),1)*(lambda_p_F>0.748)
+    let b_f2_eff = ((((b_f2-t_w)/2)*rhoF)*2+t_w)
+    //calculate new TP
+    A = ((b_f2_eff-t_w)*t_f2 + (b_f1-t_w)*t_f1 + h*t_w)
+    y_tp = ((b_f1-t_w)*t_f1*t_f1/2 + 
+                (b_f2_eff-t_w)*t_f2*(h-t_f1/2) +
+                (h*t_w)*h/2) / A;
+    }
+    if (data.SC.SC_w > 3) {
+    //reduce web
+    let sigmaRatioW = (y_tp-t_f1) / (h-t_f2-(y_tp-t_f1));
+    let k_sigmaW = (x) => (0.578/(0.34+x))*(x>=0) +
+    (1.7-5*x+17.1*(x**2))*(x<0 && x>=-1)
+    let k_sigma_in_W = k_sigmaW(sigmaRatioW)
+    let lambda_p_W = ((h-t_f1-t_f2)/t_w) / (28.4*eps*k_sigma_in_W**0.5)
+    let rhoW = 1 * (lambda_p_W<0.673) + 
+        Math.min((lambda_p_W-0.055*(3*sigmaRatioW))/(lambda_p_W**2),1)*(lambda_p_W>=0.748)
+
+    let h_eff_W = (h-y_tp-t_f2) * rhoW;
+    let h_w_eff1 = 0.6 * h_eff_W;
+    let h_w_eff2 = 0.4 * h_eff_W;
+    data = {...data,h_w_eff1:h_w_eff1, h_w_eff2:h_w_eff2,b_f2_eff:b_f2_eff}    
+    }
 }
 
 function calc() {
@@ -69,13 +136,25 @@ function calc() {
         }
 
     })
-    data = { ...data, b: Math.max(data.b_f1, data.b_f2) }
+    // Material properties
+    let E_s = 200e9; //move to geom inputs
+    let f_yd = data.f_yd*1e6; //move to geom inputs
+    data = { ...data, b: Math.max(data.b_f1, data.b_f2),E_s:E_s,f_yd:f_yd}
+    let SC = sectionClass(data);
+        
     const { h, t_f2, t_f1, t_w, b_f1, b_f2, b } = data
 
+    data = {...data,SC:SC};
+    
     //define cross section polygon
     x_p = [b / 2 - b_f1 / 2, b / 2 + b_f1 / 2, b / 2 + b_f1 / 2, b / 2 + t_w / 2, b / 2 + t_w / 2, b / 2 + b_f2 / 2, b / 2 + b_f2 / 2, b / 2 - b_f2 / 2, b / 2 - b_f2 / 2, b / 2 - t_w / 2, b / 2 - t_w / 2, b / 2 - b_f1 / 2, b / 2 - b_f1 / 2];
     y_p = [0, 0, t_f1, t_f1, h - t_f2, h - t_f2, h, h, h - t_f2, h - t_f2, t_f1, t_f1, 0];
     
+    if (SC.SC_w > 3 || SC.SC_f1 > 3 || SC.SC_f2 > 3) {
+        reducedSection(data);
+    }
+    
+
     //draw clipping mask
     svgPath = `M${x_p[0]},${y_p[0]}`
     for (let i = 1; i < x_p.length; i++) {
@@ -85,32 +164,14 @@ function calc() {
     svgPath = svgPath + 'Z'
     data = { ...data, x_p: x_p, y_p: y_p, svgPath: svgPath };
     //move to geom inputs
+
+
     [y_c, width] = getWidth(data)
+    1
     data = { ...data, width: width };
-    // Material properties
-    E_s = 200e9; //move to geom inputs
-    f_yd = data.f_yd*1e6; //move to geom inputs
-    //section class 
-    eps = Math.sqrt(235*1e6/f_yd)
-    let SC_w = [0]
-    let SC_f1 = 0
-    let SC_f2 = 0
-    const slenderness_w = (h-b_f1-b_f2) / t_w
-    const slenderness_f1 = ((b_f1/2)-(t_w/2)) / t_f1
-    const slenderness_f2 = ((b_f2/2)-(t_w/2)) / t_f2
     
-    if (slenderness_w<(72*eps)) {SC_w = 1} 
-    else if (slenderness_w<(83*eps)) {SC_w=2}
-    else if (slenderness_w<(124*eps)) {SC_w=3}
-    else {SC_w=4}
-    if (slenderness_f1<(9*eps)) {SC_f1 = 1} 
-    else if (slenderness_f1<(10*eps)) {SC_f1=2}
-    else if (slenderness_f1<(14*eps)) {SC_f1=3}
-    else {SC_f1=4}
-    if (slenderness_f2<(9*eps)) {SC_f2 = 1} 
-    else if (slenderness_f2<(10*eps)) {SC_f2=2}
-    else if (slenderness_f2<(14*eps)) {SC_f2=3}
-    else {SC_f2=4}
+
+    
 
 
 
@@ -165,7 +226,7 @@ function plot() {
 
     //Plot all!
     const { eps_s_dist, sigma_s_dist, M, rinv,y_NA } = results;
-    const {h,b,svgPath } = data;
+    const {h,b,b_f1,b_f2,t_f1,t_f2,t_w,svgPath } = data;
     val = document.getElementById('myRange').value;
     k = parseInt(val);
 
@@ -210,12 +271,71 @@ function plot() {
     }
 
 
+    let arrowAnnotations = [];
+    let xa = [-10,b/2-b_f2/2,b/2-b_f1/2,b/2-t_w/2,b/2+t_w/2,b_f1*0.75,b_f1*0.75,b_f1*0.75,b_f1*0.75]
+    let axa = [-10,b/2+b_f2/2,b/2+b_f1/2,b/2-t_w/2-20,b/2+t_w/2+20,b_f1*0.75,b_f1*0.75,b_f1*0.75,b_f1*0.75]
+    let ya = [0,h+10,0-10,h/2,h/2,h,h-t_f1,0,t_f2]
+    let aya = [h,h+10,0-10,h/2,h/2,h+20,h-t_f1-60,0-60,t_f2+20]
+    
+    for (let i=0;i<3;i++) {
+        arrowAnnotations[i] = {
+        showarrow:true,
+        arrowhead:1,
+        arrowwidth:1,
+        line:{width:1},
+        arrowside:"start+end",
+        axref:"x",
+        ayref:"y",
+        yanchor: 'bottom',
+        x:xa[i],
+        y:ya[i],
+        ay:aya[i],
+        ax:axa[i]}
+    }
+    
+    let tList = ['h','b<sub>f1<\sub>','b<sub>f2<\sub>','t<sub>f2<\sub>','t<sub>w<\sub>','t<sub>f1<\sub>'] 
+    let textAnnotation = [];
+    xa2 = [0,b/2,b/2,b_f1*0.75,b/2+t_w,b_f1*0.75]
+    ya2 = [data.h/2,0,h,h-t_f1,h/2,t_f1]
+    for (let i=0;i<6;i++) {
+        textAnnotation[i] = {
+            text: tList[i],
+            x:xa2[i],
+            y:ya2[i],
+            showarrow:false,
+            xanchor:'left',
+            yanchor:'bottom',
+        }
+    }
+    textAnnotation[1].xanchor = 'top'
+    textAnnotation[1].yanchor = 'top'
+    textAnnotation[3].yanchor = 'top'
+    
+
+    for (let i=3;i<9;i++) {
+        arrowAnnotations[i] = {
+            showarrow:true,
+            arrowhead:1,
+            arrowwidth:1,
+            line:{width:1},
+            arrowside:"end",
+            axref:"x",
+            ayref:"y",
+            yanchor: 'bottom',
+            x:xa[i],
+            y:ya[i],
+            ay:aya[i],
+            ax:axa[i]}
+        }
+    
+
+    pad = 30;
     var layout = {
         paper_bgcolor: 'rgba(0,0,0,0)',
         grid: {
             rows: 1, columns: 3, pattern: 'independent',
             xgap: 0.2, ygap: 0,
-            subplots: ['xy2', 'x2y2', 'x3y2'],
+            subplots: ['x1y1', 'x2y1', 'x3y3'],
         },
         //coloraxis: {cmid:0,colorscale:cscale,colorbar: {x: -0.2,orientation:'h'}},
         xaxis: {
@@ -226,32 +346,39 @@ function plot() {
             
         },
         yaxis: { 
-            range: [0, h], 
+            range: [0-pad, h+pad], 
             scaleanchor: "x",
             showgrid: false,
             showline: false,
             zeroline: false,            
          },
         xaxis2: {
-            range: [-data.f_yd*1e6*1.1, data.f_yd*1e6*1.1], 
+            range: [-data.f_yd*1.1, data.f_yd*1.1], 
             title: "stress (Pa)", 
             domain: [0.30, 0.5] 
         },
         yaxis2: { 
-            range: [0, h], 
-            showticklabels: false 
+            range: [0-pad, h+pad], 
+            showticklabels: false,
+            showgrid: false,
+            showline: false,
+            zeroline: false,
         },
         xaxis3: { 
-            range: [-data.f_yd*1e6*1.1*Math.max(...width)/1000, data.f_yd*1e6*1.1*Math.max(...width)/1000], 
+            range: [-data.f_yd*1.1*Math.max(...width)/1000, data.f_yd*1.1*Math.max(...width)/1000], 
             domain: [0.55, 0.75],
             title: 'stress x width (N/m)'},
         yaxis3: {
-            range: [0, h], showticklabels: false,
+            range: [0-pad, h+pad], 
+            showticklabels: false,
+            showgrid: false,
+            showline: false,
+            zeroline: false,
         },
         showlegend: false,
         coloraxis: {
-            cmax:data.f_yd*1e6,
-            cmin:-data.f_yd*1e6, 
+            cmax:data.f_yd,
+            cmin:-data.f_yd, 
             colorbar: {
                 orientation:'v',
                 thickness:15,
@@ -303,7 +430,10 @@ function plot() {
                 yanchor: 'bottom',
                 text: 'neutral axis',
                 showarrow: false
-              }]
+              },
+              ...arrowAnnotations, ...textAnnotation
+              
+            ]
     };
     
     Plotly.newPlot(ax1, [surf,trace21,trace31], layout,{responsive: true}  )
@@ -325,7 +455,6 @@ function plot() {
         showlegend: false,
         paper_bgcolor:'rgba(0,0,0,0)',        
     }
-
     Plotly.newPlot(ax2, [{ x: rinv, y: M }],layout2)
 }
 
