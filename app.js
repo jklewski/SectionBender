@@ -27,7 +27,7 @@ function sectionClass(data) {
     let SC_w = 0
     let SC_f1 = 0
     let SC_f2 = 0
-    const slenderness_w = (h-b_f1-b_f2) / t_w
+    const slenderness_w = (h-t_f1-t_f2) / t_w
     const slenderness_f1 = ((b_f1/2)-(t_w/2)) / t_f1
     const slenderness_f2 = ((b_f2/2)-(t_w/2)) / t_f2  
     const eps = Math.sqrt(235*1e6/f_yd)  
@@ -55,9 +55,11 @@ function getWidth(data) {
         let xCrossing = [];
         let w = [];
         //loop over relevant segments to find intersect
+
         for (let i = 0; i < x_p.length - 1; i++) {
             //check if segment cross the present yLine
-            if ((((y_p[i] > y_c[j]) + (y_p[i + 1] > y_c[j])) & 1) > 0.5) {
+            if ((((y_p[i] > y_c[j]) + (y_p[i + 1] > y_c[j])) & 1) > 0.5 && !isNaN(y_p[i])
+            && !isNaN(y_p[i+1])) {
                 //find and store x-value of crossing
                 if (Math.abs(x_p[i] - x_p[i + 1]) < 0.0001) {
                     xIntersect = x_p[i];
@@ -84,7 +86,7 @@ function reducedSection(data) {
     let {b,t_f1,t_f2,t_w,h,f_yd,b_f1,b_f2,E_s} = data
     //calculate gross CoG
     let A = ((b_f2-t_w)*t_f2 + (b_f1-t_w)*t_f1 + h*t_w)
-    let y_tp = ((b_f1-t_w)*t_f1*t_f1/2 + 
+    var y_tp = ((b_f1-t_w)*t_f1*t_f1/2 + 
                 (b_f2-t_w)*t_f2*(h-t_f1/2) +
                 (h*t_w)*h/2) / A;
     const eps = Math.sqrt(235*1e6/f_yd)    
@@ -92,41 +94,47 @@ function reducedSection(data) {
     if (data.SC.SC_f2 > 3) {
     //reduce compressed flange
     let sigmaRatioF = 1;
-    let k_sigmaF = (x) => (8.2/(1.05+x))*(x>=0) +
-        (7.81-6.29*x+9.78*(x**2))*(x<0 && x>-1) + 
-        (5.98*(1-x)**2)*(x<=-1)
+    let k_sigmaF = (x) => (0.578/(0.34+x))*(x>=0) +
+    (1.7-5*x+17.1*(x**2))*(x<0 && x>=-1)
     let k_sigma_in_F = k_sigmaF(sigmaRatioF)
 
-    let lambda_p_F = ((b_f1/2-t_w/2)/t_f1) / (28.4*eps*k_sigma_in_F**0.5)
+    let lambda_p_F = ((b_f2/2-t_w/2)/t_f2) / (28.4*eps*(k_sigma_in_F**0.5))
     let rhoF = 1 * (lambda_p_F<0.748) + 
         Math.min((lambda_p_F-0.188)/(lambda_p_F**2),1)*(lambda_p_F>0.748)
-    let b_f2_eff = ((((b_f2-t_w)/2)*rhoF)*2+t_w)
+    var b_f2_eff = ((((b_f2-t_w)/2)*rhoF)*2+t_w)
     //calculate new TP
     A = ((b_f2_eff-t_w)*t_f2 + (b_f1-t_w)*t_f1 + h*t_w)
-    y_tp = ((b_f1-t_w)*t_f1*t_f1/2 + 
+    var y_tp = ((b_f1-t_w)*t_f1*t_f1/2 + 
                 (b_f2_eff-t_w)*t_f2*(h-t_f1/2) +
                 (h*t_w)*h/2) / A;
+    } else {
+        var b_f2_eff = b_f2
     }
     if (data.SC.SC_w > 3) {
     //reduce web
     let sigmaRatioW = (y_tp-t_f1) / (h-t_f2-(y_tp-t_f1));
-    let k_sigmaW = (x) => (0.578/(0.34+x))*(x>=0) +
-    (1.7-5*x+17.1*(x**2))*(x<0 && x>=-1)
+    let k_sigmaW = (x) => (8.2/(1.05+x))*(x>=0) +
+        (7.81-6.29*x+9.78*(x**2))*(x<0 && x>-1) + 
+        (5.98*(1-x)**2)*(x<=-1)
     let k_sigma_in_W = k_sigmaW(sigmaRatioW)
     let lambda_p_W = ((h-t_f1-t_f2)/t_w) / (28.4*eps*k_sigma_in_W**0.5)
     let rhoW = 1 * (lambda_p_W<0.673) + 
         Math.min((lambda_p_W-0.055*(3*sigmaRatioW))/(lambda_p_W**2),1)*(lambda_p_W>=0.748)
 
-    let h_eff_W = (h-y_tp-t_f2) * rhoW;
-    let h_w_eff1 = 0.6 * h_eff_W;
-    let h_w_eff2 = 0.4 * h_eff_W;
-    data = {...data,h_w_eff1:h_w_eff1, h_w_eff2:h_w_eff2,b_f2_eff:b_f2_eff}    
+    var h_eff_W = (h-y_tp-t_f2) * rhoW;
+    var h_w_eff1 = 0.6 * h_eff_W;
+    var h_w_eff2 = 0.4 * h_eff_W;
+    } else {
+        var h_w_eff1 = 0.6*(h-t_f1-t_f2);
+        var h_w_eff2 = 0.4*(h-t_f1-t_f2);            
     }
+    return data = {...data,h_w_eff1:h_w_eff1, h_w_eff2:h_w_eff2,b_f2_eff:b_f2_eff, y_tp:y_tp}    
+    
 }
 
 function calc() {
     data = {}
-    let groups = $('.geom').each(function () {
+    $('.geom').each(function () {
         let id = $(this).attr('id');
         // create field name from id and index. e.g. fld1_1
         const field = `${id}`;
@@ -150,16 +158,30 @@ function calc() {
     x_p = [b / 2 - b_f1 / 2, b / 2 + b_f1 / 2, b / 2 + b_f1 / 2, b / 2 + t_w / 2, b / 2 + t_w / 2, b / 2 + b_f2 / 2, b / 2 + b_f2 / 2, b / 2 - b_f2 / 2, b / 2 - b_f2 / 2, b / 2 - t_w / 2, b / 2 - t_w / 2, b / 2 - b_f1 / 2, b / 2 - b_f1 / 2];
     y_p = [0, 0, t_f1, t_f1, h - t_f2, h - t_f2, h, h, h - t_f2, h - t_f2, t_f1, t_f1, 0];
     
-    if (SC.SC_w > 3 || SC.SC_f1 > 3 || SC.SC_f2 > 3) {
-        reducedSection(data);
+    if (SC.SC_w > 3 || SC.SC_f2 > 3) {
+        data = reducedSection(data);
+        let {h_w_eff1,h_w_eff2,b_f2_eff, y_tp} = data;
+        if (SC.SC_w < 4) {y_tp = 0}
+        x_p = [b / 2 - b_f1 / 2, b / 2 + b_f1 / 2, b / 2 + b_f1 / 2, b / 2 + t_w / 2, b / 2 + t_w / 2, b / 2 - t_w / 2, b / 2 - t_w / 2, b / 2 - b_f1 / 2, b / 2 - b_f1 / 2, 
+        NaN,
+        b / 2 - b_f2_eff / 2, b / 2 + b_f2_eff / 2, b / 2 + b_f2_eff / 2, b / 2 + t_w / 2, b / 2 + t_w / 2, b / 2 - t_w / 2, b / 2 - t_w / 2, b / 2 - b_f2_eff / 2, b / 2 - b_f2_eff / 2];
+        
+        y_p = [0, 0, t_f1, t_f1, t_f1+y_tp+h_w_eff1, t_f1+y_tp+h_w_eff1, t_f1, t_f1, 0,
+        NaN,
+        h, h, h-t_f2, h-t_f2, h-t_f2-h_w_eff2,h-t_f2-h_w_eff2,h-t_f2,h-t_f2,h];
     }
     
 
     //draw clipping mask
     svgPath = `M${x_p[0]},${y_p[0]}`
     for (let i = 1; i < x_p.length; i++) {
-        segment = `L${x_p[i]},${y_p[i]}`
+        if (!isNaN(x_p[i])) {
+        segment = `L${Math.round(x_p[i]*10)/10},${Math.round(y_p[i]*10)/10}`
+        svgPath = svgPath.replace('ZL','ZM')
         svgPath = svgPath + segment
+        } else {
+            svgPath = svgPath + 'Z'
+        }
     }
     svgPath = svgPath + 'Z'
     data = { ...data, x_p: x_p, y_p: y_p, svgPath: svgPath };
@@ -169,9 +191,7 @@ function calc() {
     [y_c, width] = getWidth(data)
     1
     data = { ...data, width: width };
-    
-
-    
+     
 
 
 
@@ -210,7 +230,7 @@ function calc() {
         sigma_s_dist[i] = math.dotMultiply(eps_s_dist[i], E_s);
         sigma_s_dist[i] = sigma_s_dist[i].map(a => a > f_yd ? f_yd : a)
         sigma_s_dist[i] = sigma_s_dist[i].map(a => a < -f_yd ? -f_yd : a)
-        //M[i] = sum(math.abs(sigma_s_dist[i])*x_num*dy*abs(y_NA(i)-y_num));
+        sigma_s_dist[i] = sigma_s_dist[i].map((a,k) => x_num[k] < 1 ? 0 : a)
         M[i] = math.sum(math.dotMultiply(math.dotMultiply(math.dotMultiply(math.abs(sigma_s_dist[i]), x_num), dy), math.abs(math.subtract(y_NA[i], y_num))))
     }
     results = { eps_s_dist: eps_s_dist, M: M, rinv: rinv, sigma_s_dist: sigma_s_dist,y_NA:y_NA };
@@ -274,8 +294,8 @@ function plot() {
     let arrowAnnotations = [];
     let xa = [-10,b/2-b_f2/2,b/2-b_f1/2,b/2-t_w/2,b/2+t_w/2,b_f1*0.75,b_f1*0.75,b_f1*0.75,b_f1*0.75]
     let axa = [-10,b/2+b_f2/2,b/2+b_f1/2,b/2-t_w/2-20,b/2+t_w/2+20,b_f1*0.75,b_f1*0.75,b_f1*0.75,b_f1*0.75]
-    let ya = [0,h+10,0-10,h/2,h/2,h,h-t_f1,0,t_f2]
-    let aya = [h,h+10,0-10,h/2,h/2,h+20,h-t_f1-60,0-60,t_f2+20]
+    let ya = [0,h+10,0-10,h/2,h/2,h,h-t_f2,0,t_f1]
+    let aya = [h,h+10,0-10,h/2,h/2,h+20,h-t_f2-60,0-60,t_f1+20]
     
     for (let i=0;i<3;i++) {
         arrowAnnotations[i] = {
@@ -296,7 +316,7 @@ function plot() {
     let tList = ['h','b<sub>f1<\sub>','b<sub>f2<\sub>','t<sub>f2<\sub>','t<sub>w<\sub>','t<sub>f1<\sub>'] 
     let textAnnotation = [];
     xa2 = [0,b/2,b/2,b_f1*0.75,b/2+t_w,b_f1*0.75]
-    ya2 = [data.h/2,0,h,h-t_f1,h/2,t_f1]
+    ya2 = [data.h/2,0,h,h-t_f2,h/2,t_f1]
     for (let i=0;i<6;i++) {
         textAnnotation[i] = {
             text: tList[i],
