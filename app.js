@@ -225,6 +225,7 @@ function calc() {
     const M = [];
     const eps_s_dist = [];
     const rinv = math.dotDivide(eps_s, y_NA);
+    let check = [];
     for (let i = 0; i < eps_s.length; i++) {
         eps_s_dist[i] = math.subtract(eps_s[i], math.dotMultiply(y_num, rinv[i]));
         sigma_s_dist[i] = math.dotMultiply(eps_s_dist[i], E_s);
@@ -232,8 +233,11 @@ function calc() {
         sigma_s_dist[i] = sigma_s_dist[i].map(a => a < -f_yd ? -f_yd : a)
         sigma_s_dist[i] = sigma_s_dist[i].map((a,k) => x_num[k] < 1 ? 0 : a)
         M[i] = math.sum(math.dotMultiply(math.dotMultiply(math.dotMultiply(math.abs(sigma_s_dist[i]), x_num), dy), math.abs(math.subtract(y_NA[i], y_num))))
+        check[i] = sigma_s_dist[i].filter(x => Math.abs(x) == f_yd).length > 0
     }
-    results = { eps_s_dist: eps_s_dist, M: M, rinv: rinv, sigma_s_dist: sigma_s_dist,y_NA:y_NA };
+
+    let elasticIndex = check.findIndex(x => x)-1
+    results = { eps_s_dist: eps_s_dist, M: M, rinv: rinv, sigma_s_dist: sigma_s_dist,y_NA:y_NA,elasticIndex:elasticIndex};
     plot()
 }
 
@@ -245,7 +249,7 @@ function plot() {
     ax3 = document.getElementById('myAx3')
 
     //Plot all!
-    const { eps_s_dist, sigma_s_dist, M, rinv,y_NA } = results;
+    const { eps_s_dist, sigma_s_dist, M, rinv,y_NA,elasticIndex} = results;
     const {h,b,b_f1,b_f2,t_f1,t_f2,t_w,svgPath } = data;
     val = document.getElementById('myRange').value;
     k = parseInt(val);
@@ -458,6 +462,35 @@ function plot() {
     
     Plotly.newPlot(ax1, [surf,trace21,trace31], layout,{responsive: true}  )
 
+    var trace21 = {
+        x: rinv,
+        y: M,
+        mode:'lines',
+        line: {
+            color:'rgb(0,0,0)',
+            }
+    }
+
+    var trace22 = {
+        x: [0,Math.max(...rinv)],
+        y: [M[elasticIndex],M[elasticIndex]],
+        mode:'lines',
+        line: {
+            color:'rgb(0,0,0)',
+            dash: 'dashdot',
+            width:1}
+    }
+
+    var trace23 = {
+        x: [rinv[k],rinv[k]],
+        y: [M[k],M[k]],
+        mode:'markers',
+        marker:{color:'black',
+                size:10}
+    }
+
+
+
     var layout2 = {
         margin: {
             l: 50,
@@ -473,9 +506,17 @@ function plot() {
             title:"curvature / r<sup> -1</sup>",
             range: [0, Math.max(...rinv)*1.1] },
         showlegend: false,
-        paper_bgcolor:'rgba(0,0,0,0)',        
+        paper_bgcolor:'rgba(0,0,0,0)',  
+        annotations: [{
+            x:0.5*Math.max(...rinv),
+            y:M[elasticIndex],
+            text:'<b>CSC 3-4 limit</b>',
+            showarrow:false,
+            bgcolor: 'rgba(0,0,0,0.1)',
+            yanchor:'top'
+        }]      
     }
-    Plotly.newPlot(ax2, [{ x: rinv, y: M }],layout2)
+    Plotly.newPlot(ax2, [trace21,trace22,trace23],layout2)
 }
 
 
